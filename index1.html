@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <input type="file" id="fileInput" />
+    <button id="uploadBtn">上传</button>
+
+    <script>
+      // 请求基准地址
+      axios.defaults.baseURL = "http://localhost:3000";
+      // 选中的文件
+      var file = null;
+      document.getElementById("fileInput").onchange = function ({
+        target: { files },
+      }) {
+        file = files[0];
+      };
+      // 开始上传
+      document.getElementById("uploadBtn").onclick = async function () {
+        if (!file) return;
+        // 创建切片
+        let size = 102 * 50;
+        let fileChunks = [];
+        let index = 0; // 切片序号
+        for (let cur = 0; cur < file.size; cur += size) {
+          fileChunks.push({
+            hash: index++,
+            chunk: file.slice(cur, cur + size),
+          });
+        }
+
+        // 控制并发
+        let pool = []; // 并发池
+        let max = 3;
+
+        for (let i = 0; i < fileChunks.length; i++) {
+          let item = fileChunks[i];
+          let formData = new FormData();
+          formData.append("filename", file.name);
+          formData.append("hash", item.hash);
+          formData.append("chunk", item.chunk);
+          // 上传切片
+          let task = axios({
+            method: "post",
+            url: "/upload",
+            data: formData,
+          });
+
+          task.then((data) => {
+            let index = pool.findIndex((t) => t === task);
+            pool.splice(index);
+          });
+          pool.push(task);
+          if (pool.length === max) {
+            await Promise.race(pool);
+          }
+        }
+
+        await Promise.all(uploadList);
+
+        // 合并切片
+        await axios({
+          method: "get",
+          url: "/merge",
+          params: {
+            filename: file.name,
+          },
+        });
+
+        console.log("上传成功");
+      };
+    </script>
+  </body>
+</html>
